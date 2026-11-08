@@ -78,6 +78,49 @@ def find_mounted_manual_spool(
     return None
 
 
+EXTERNAL_INDEXES = (254, 255)  # flat `ams` index of external spool holders
+
+
+def external_from_mapping(item: dict[str, Any]) -> int | None:
+    """Flat index (254/255) when an amsDetailMapping entry used an external spool.
+
+    Verified live on an A1 mini (external spool, no AMS): the cloud records
+    `{'ams': 255, 'amsId': 255, 'slotId': 0, 'weight': 1.09, ...}`.
+    """
+    ams = item.get("ams")
+    if isinstance(ams, bool) or not isinstance(ams, int):
+        return None
+    return ams if ams in EXTERNAL_INDEXES else None
+
+
+def is_external_spool(spool: dict[str, Any]) -> bool:
+    """Library spool mounted on an external holder (same rule as the card)."""
+    return str(spool.get("slotId")) == "255" or str(spool.get("amsType")) == "0"
+
+
+def find_mounted_external_spool(
+    spools: dict[int, dict[str, Any]], dev_id: str, ext_index: int
+) -> dict[str, Any] | None:
+    """The manual spool the library shows on this printer's external holder.
+
+    One external spool on the printer -> that one. Several (dual-nozzle
+    printers have two holders) -> only the one whose amsId matches the job's
+    index; never guess between them.
+    """
+    candidates = [
+        spool
+        for spool in spools.values()
+        if spool.get("inPrinter")
+        and spool.get("devId") == dev_id
+        and not spool.get("RFID")
+        and is_external_spool(spool)
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    exact = [s for s in candidates if str(s.get("amsId")) == str(ext_index)]
+    return exact[0] if len(exact) == 1 else None
+
+
 class UsageDeductor:
     """Books finished print jobs against manual spools, once each."""
 

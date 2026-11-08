@@ -25,7 +25,13 @@ from .ams_register import (
     scan_mounted_rfid_trays,
     watched_entity_ids,
 )
-from .usage import UsageDeductor, find_mounted_manual_spool, slot_from_mapping
+from .usage import (
+    UsageDeductor,
+    external_from_mapping,
+    find_mounted_external_spool,
+    find_mounted_manual_spool,
+    slot_from_mapping,
+)
 from .colors import BambuColorDB
 from .const import (
     DEFAULT_AUTO_DEDUP,
@@ -415,22 +421,28 @@ class BambuFilamentsCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]
                 if grams <= 0:
                     continue
                 position = slot_from_mapping(item)
-                if position is None:
-                    _LOGGER.debug("Usage booking: job %s entry without slot: %s", task.get("id"), item)
-                    continue
-                spool = find_mounted_manual_spool(data, task.get("deviceId"), *position)
+                if position is not None:
+                    spool = find_mounted_manual_spool(data, task.get("deviceId"), *position)
+                    where = f"AMS {position[0]} slot {position[1] + 1}"
+                else:
+                    ext_index = external_from_mapping(item)
+                    if ext_index is None:
+                        _LOGGER.debug("Usage booking: job %s entry without slot: %s", task.get("id"), item)
+                        continue
+                    spool = find_mounted_external_spool(data, task.get("deviceId"), ext_index)
+                    where = f"external spool {ext_index}"
                 if spool is None:
                     _LOGGER.debug(
-                        "Usage booking: no manual spool mounted for job %s at AMS %s slot %s",
-                        task.get("id"), position[0], position[1] + 1,
+                        "Usage booking: no manual spool mounted for job %s at %s",
+                        task.get("id"), where,
                     )
                     continue
                 fid_task, fid_spool = item.get("filamentId") or "", spool.get("filamentId") or ""
                 if fid_task and fid_spool and fid_task != fid_spool:
                     _LOGGER.warning(
-                        "Usage booking: job %s used %s in %s slot %s but the library has %s "
+                        "Usage booking: job %s used %s in %s %s but the library has %s "
                         "(%s %s) there - not booked",
-                        task.get("id"), fid_task, task.get("deviceName"), position[1] + 1,
+                        task.get("id"), fid_task, task.get("deviceName"), where,
                         fid_spool, spool.get("filamentVendor"), spool.get("filamentName"),
                     )
                     continue
